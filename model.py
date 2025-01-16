@@ -1,7 +1,9 @@
+#This class define the attention mechanism for graphs 
+
 class MHGAttend(nn.Module):
     def __init__(self, hidden_size, heads):
         super().__init__()
-        self.hidden_size = hidden_size
+        self.hidden_size = hidden_size 
         self.heads = heads
         self.head_size = hidden_size//heads
         self.wq = nn.Linear(hidden_size, hidden_size)
@@ -14,9 +16,9 @@ class MHGAttend(nn.Module):
         k = self.wk(x)
         v = self.wv(x)
         q = q.view(q.shape[0], self.heads, self.head_size).transpose(0,1)  # \
-        k = k.view(k.shape[0], self.heads, self.head_size).transpose(0,1)  #  |=>  (heads, nodebatch, head_size)
+        k = k.view(k.shape[0], self.heads, self.head_size).transpose(0,1)  #  |=>  (heads, nodebatch, head_size) compute the linear projection
         v = v.view(v.shape[0], self.heads, self.head_size).transpose(0,1)  # /
-        attention_scores = (q @ v.transpose(-2,-1)) / np.sqrt(self.head_size)  #  (heads,nodebatch,head_size)*(heads,head_size,nodebatch)
+        attention_scores = (q @ v.transpose(-2,-1)) / np.sqrt(self.head_size)  #  (heads,nodebatch,head_size)*(heads,head_size,nodebatch) 
         attention_scores.masked_fill_(Adj == 0, -1e9)
         attention_scores = attention_scores.softmax(dim = -1)
         o = attention_scores @ v  #  (heads,nodebatch,nodebatch)*(heads,nodebatch,head_size)
@@ -27,48 +29,103 @@ class MHGAttend(nn.Module):
 
 
 
+#this class define the forward pass with MoE 
 
 class MoeveForward(nn.Module):
     def __init__(self, num_xprtz, input_size, xprt_size, k, dropout):
         super().__init__()
-        self.expert = nn.Sequential(nn.Linear(input_size, xprt_size),nn.LeakyReLU(),nn.Linear(xprt_size, input_size),nn.Dropout(dropout))
+        
+        # Define a single expert: A simple feedforward neural network (FFN)
+        self.expert = nn.Sequential(
+            nn.Linear(input_size, xprt_size),  # Linear layer: input -> hidden
+            nn.LeakyReLU(),                   # Activation function
+            nn.Linear(xprt_size, input_size), # Linear layer: hidden -> output
+            nn.Dropout(dropout)               # Dropout for regularization
+        )
+        
+        # Combine multiple experts using ModuleList
         self.experts = nn.ModuleList([self.expert for _ in range(num_xprtz)])
+
+        # Define a noise network to introduce randomness in the routing process
         self.w_noise = nn.Linear(input_size, num_xprtz, bias=False)
+
+        # Define the router network that decides which experts to activate
         self.router = nn.Linear(input_size, num_xprtz, bias=False)
+
+        # Activation function to ensure noise values are non-negative
         self.softplus = nn.Softplus()
-        self.num_xprtz = num_xprtz
-        self.k = k
+
+        # Save the number of experts and the top-k selection parameter
+        self.num_xprtz = num_xprtz  # Number of experts
+        self.k = k  # Number of top-k experts to select
+
+        # Initialize the weights of the noise network to zero
         torch.nn.init.zeros_(self.w_noise.weight)
 
     def forward(self, input):
-        router_choice = self.router(input)     ######################## \
-        router_noise = self.softplus(self.w_noise(input))     #########  |=> router net with random noise as in https://arxiv.org/pdf/1701.06538
-        H = router_choice + torch.randn(self.num_xprtz).to(device)*router_noise  # /
-        weights, experts = torch.topk(H, self.k)  # keep top k choices
+        # Compute the routing logits from the router network
+        router_choice = self.router(input)
+
+        # Compute the noise values using the noise network and Softplus activation
+        router_noise = self.softplus(self.w_noise(input))
+
+        # Add random noise to the router's logits to introduce stochasticity
+        H = router_choice + torch.randn(self.num_xprtz).to(device) * router_noise
+
+        # Select the top-k experts based on the noisy routing logits
+        weights, experts = torch.topk(H, self.k)  # `weights`: top-k values, `experts`: top-k indices
+
+        # Apply a softmax to the selected weights to normalize them
         weights = nn.functional.softmax(weights, dim=1, dtype=torch.float)
-        out = torch.zeros_like(input).to(device)
-        Loads = torch.zeros(self.num_xprtz).to(device)
-        counter = torch.zeros(self.num_xprtz).to(device)
-        what = torch.zeros(self.num_xprtz,input.shape[0]).to(device)
-        for i, xprt in enumerate(self.experts):  # loop on the experts to compute the slices of the batch and load for each one
-          # slice
+
+        # Initialize outputs and tracking tensors
+        out = torch.zeros_like(input).to(device)  # Output tensor (same shape as input)
+        Loads = torch.zeros(self.num_xprtz).to(device)  # Tracks load for each expert
+        counter = torch.zeros(self.num_xprtz).to(device)  # Tracks number of samples processed by each expert
+        what = torch.zeros(self.num_xprtz, input.shape[0]).to(device)  # Tracks which samples go to which expert
+
+        # Loop through each expert to compute outputs and loads
+        for i, xprt in enumerate(self.experts):
+            # Identify samples assigned to the current expert
             which_nodes, which_xprt = torch.where(experts == i)
+
+            # Compute the output for the assigned samples
             out[which_nodes] += weights[which_nodes, which_xprt, None] * xprt(input[which_nodes])
+
+            # Track which samples were assigned to this expert
             what[i][which_nodes] += 1
-          # load
-            kthXi = torch.topk(torch.cat([H.transpose(0,1)[:i], H.transpose(0,1)[i+1:]]).transpose(0,1), self.k)[0].transpose(0,1)[self.k - 1]
-            router_choice_i = router_choice.transpose(0,1)[i]
-            normal = torch.distributions.normal.Normal(torch.tensor([0.0]).to(device), torch.tensor([1.0]).to(device))
-            P_i = normal.cdf((router_choice_i - kthXi) / router_noise.transpose(0,1)[i])
+
+            # Calculate the load for the current expert
+            # Find the k-th largest routing logit excluding the current expert
+            kthXi = torch.topk(torch.cat([
+                H.transpose(0, 1)[:i],         # Logits before the current expert
+                H.transpose(0, 1)[i + 1:]      # Logits after the current expert
+            ]).transpose(0, 1), self.k)[0].transpose(0, 1)[self.k - 1]  # Select k-th largest logit
+
+            # Retrieve the routing logit for the current expert
+            router_choice_i = router_choice.transpose(0, 1)[i]
+
+            # Define a normal distribution (mean=0, std=1) for computing probabilities
+            normal = torch.distributions.normal.Normal(
+                torch.tensor([0.0]).to(device), torch.tensor([1.0]).to(device)
+            )
+
+            # Compute the probability of the current expert being selected
+            P_i = normal.cdf((router_choice_i - kthXi) / router_noise.transpose(0, 1)[i])
+
+            # Compute the load for the current expert
             load_i = torch.sum(P_i)
             Loads[i] += load_i
+
+            # Track the number of samples processed by this expert
             counter[i] += len(which_nodes)
 
+        # Return the output, loads, sample counts, and assignment tracking
         return out, Loads, counter, what
 
 
 
-
+#this class define the encoder network 
 
 class Encoder(nn.Module):
     def __init__(self, hidden_size, heads, num_xprtz, xprt_size, k, dropout):
@@ -93,7 +150,7 @@ class Encoder(nn.Module):
 
 
 
-
+#This is the full architecture of Transformer 
 class Transformer(nn.Module):
     def __init__(self, input_size, hidden_size, encoding_size, g_norm, heads, num_xprtz, xprt_size, k, dropout_encoder, layers, output_size):
         super().__init__()
