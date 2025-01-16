@@ -70,13 +70,13 @@ class MoeveForward(nn.Module):
         router_noise = self.softplus(self.w_noise(input))
 
         # Add random noise to the router's logits to introduce stochasticity
-        H = router_choice + torch.randn(self.num_xprtz).to(device) * router_noise
+        H = router_choice + torch.randn(self.num_xprtz).to(device) * router_noise #(input_size,num_xprt)
 
         # Select the top-k experts based on the noisy routing logits
-        weights, experts = torch.topk(H, self.k)  # `weights`: top-k values, `experts`: top-k indices
+        weights, experts = torch.topk(H, self.k)  # `weights`: top-k values, `experts`: top-k indices #(input_size, k)
 
         # Apply a softmax to the selected weights to normalize them
-        weights = nn.functional.softmax(weights, dim=1, dtype=torch.float)
+        weights = nn.functional.softmax(weights, dim=1, dtype=torch.float) 
 
         # Initialize outputs and tracking tensors
         out = torch.zeros_like(input).to(device)  # Output tensor (same shape as input)
