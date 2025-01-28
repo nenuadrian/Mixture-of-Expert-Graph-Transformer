@@ -1,4 +1,19 @@
-#This class define the attention mechanism for graphs 
+"""
+The MHGAttend class implements a multi-head graph attention mechanism, a specialized neural network layer designed for graph-structured data. 
+This class takes as input a feature matrix of nodes and an adjacency matrix that defines the graph structure, and computes attention-weighted node embeddings.
+
+Inputs:
+- x (Tensor): Node feature matrix of shape (node_count, hidden_size).
+- Adj (Tensor): Adjacency matrix of shape (node_count, node_count), with 0 indicating no edge and 1 indicating an edge.
+
+Outputs:
+- o (Tensor): Updated node embeddings of shape (node_count, hidden_size).
+- attention_scores (Tensor): Attention weights of shape (heads, node_count, node_count).
+
+Parameters:
+- hidden_size (int): Dimensionality of the node embeddings.
+- heads (int): Number of attention heads.
+"""
 
 class MHGAttend(nn.Module):
     def __init__(self, hidden_size, heads):
@@ -28,9 +43,33 @@ class MHGAttend(nn.Module):
 
 
 
+ 
+"""
+The MoeveForward class implements a Mixture-of-Experts (MoE) model with a forward pass that utilizes a stochastic routing mechanism. 
+This architecture is designed to dynamically route inputs to a subset of specialized experts.
 
-#this class define the forward pass with MoE 
+Key Features:
+- Multiple Experts: Each expert is a small feedforward neural network (FFN) that processes input data independently.
+- Stochastic Routing: Inputs are routed to the top-k experts based on routing logits, which include added noise for stochasticity.
+- Load Balancing: Tracks the load and sample assignments for each expert to monitor utilization.
+- Noise Network: Introduces randomness in the routing process for exploration and diversity.
 
+Inputs:
+- input (Tensor): Input tensor of shape (batch_size, input_size).
+
+Outputs:
+- out (Tensor): Aggregated output tensor of shape (batch_size, input_size), combining contributions from the selected experts.
+- Loads (Tensor): Load distribution tensor of shape (num_xprtz), representing the computational load for each expert.
+- counter (Tensor): Tensor of shape (num_xprtz) tracking the number of samples processed by each expert.
+- what (Tensor): Tensor of shape (num_xprtz, batch_size) indicating the assignment of samples to experts.
+
+Parameters:
+- num_xprtz (int): Number of experts in the mixture.
+- input_size (int): Dimensionality of the input data.
+- xprt_size (int): Dimensionality of the hidden layer within each expert.
+- k (int): Number of top-k experts selected for processing each input.
+- dropout (float): Dropout rate for regularization within each expert.
+"""
 class MoeveForward(nn.Module):
     def __init__(self, num_xprtz, input_size, xprt_size, k, dropout):
         super().__init__()
@@ -38,9 +77,9 @@ class MoeveForward(nn.Module):
         # Define a single expert: A simple feedforward neural network (FFN)
         self.expert = nn.Sequential(
             nn.Linear(input_size, xprt_size),  # Linear layer: input -> hidden
-            nn.LeakyReLU(),                   # Activation function
-            nn.Linear(xprt_size, input_size), # Linear layer: hidden -> output
-            nn.Dropout(dropout)               # Dropout for regularization
+            nn.LeakyReLU(),                    # Activation function
+            nn.Linear(xprt_size, input_size),  # Linear layer: hidden -> output
+            nn.Dropout(dropout)                # Dropout for regularization
         )
         
         # Combine multiple experts using ModuleList
@@ -70,7 +109,7 @@ class MoeveForward(nn.Module):
         router_noise = self.softplus(self.w_noise(input))
 
         # Add random noise to the router's logits to introduce stochasticity
-        H = router_choice + torch.randn(self.num_xprtz).to(device) * router_noise #(input_size,num_xprt)
+        H = router_choice + torch.randn(self.num_xprtz).to(device) * router_noise    #(input_size,num_xprt)
 
         # Select the top-k experts based on the noisy routing logits
         weights, experts = torch.topk(H, self.k)  # `weights`: top-k values, `experts`: top-k indices #(input_size, k)
@@ -126,6 +165,30 @@ class MoeveForward(nn.Module):
 
 
 #this class define the encoder network 
+"""
+The Encoder class implements a modular architecture for processing graph-structured data using attention mechanisms and Mixture-of-Experts (MoE) routing. 
+Key Features:
+- Multi-Head Graph Attention (MHGAttend): Captures dependencies between nodes in a graph by leveraging attention mechanisms.
+- Mixture-of-Experts (MoeveForward): Dynamically routes inputs to a subset of specialized experts, enabling computational efficiency and diverse representations.
+
+Inputs:
+- x (Tensor): Input tensor of shape (num_nodes, hidden_size), where `num_nodes` is the number of nodes in the graph.
+- Adj (Tensor): Adjacency matrix of shape (num_nodes, num_nodes), representing graph structure.
+
+Outputs:
+- y (Tensor): Output tensor of shape (num_nodes, hidden_size), containing the processed node representations.
+- load (Tensor): the squared normalized variance of loads.
+- counter (Tensor): Tensor of shape (num_xprtz), tracking the number of samples processed by each expert.
+- what (Tensor): Tensor of shape (num_xprtz, num_nodes), indicating the assignment of nodes to experts.
+
+Parameters:
+- hidden_size (int): Dimensionality of the input and output node features.
+- heads (int): Number of attention heads in the graph attention mechanism.
+- num_xprtz (int): Number of experts in the Mixture-of-Experts module.
+- xprt_size (int): Dimensionality of the hidden layer within each expert.
+- k (int): Number of top-k experts selected for processing each node.
+- dropout (float): Dropout rate for regularization.
+"""
 
 class Encoder(nn.Module):
     def __init__(self, hidden_size, heads, num_xprtz, xprt_size, k, dropout):
@@ -142,41 +205,78 @@ class Encoder(nn.Module):
         x = self.normalize1(input + x)
         x = self.drop(x)
         y, load, counter, what = self.moveforward(x)
-        y = self.normalize2(x + y)
-        load = (torch.std(load) / torch.mean(load))**2
+        y = self.normalize2(x + y) 
+        load = (torch.std(load) / torch.mean(load))**2 #squared normalized variance of load
     
         return y, load, counter, what
 
 
 
+"""
+    The Transformer class defines the full architecture of a transformer model for processing graph-structured data. 
 
-#This is the full architecture of Transformer 
+    Key Features:
+    - Embedding: Converts raw input features into a higher-dimensional space using `EmbedEncode`.
+    - Multi-layer Encoders: Processes the data through multiple `Encoder` layers to extract hierarchical features.
+    - Pooling: Aggregates node-level information into a graph-level representation using global mean pooling.
+    - Prediction: Outputs final predictions for graph-level tasks.
+
+    Inputs:
+    - x (Data): Graph data object containing node features, edge indices, and batch information.
+
+    Outputs:
+    - x (Tensor): Final output predictions of shape (batch_size, output_size).
+    - Loads (Tensor): Scalar tensor representing average load imbalance across all layers.
+    - counters (Tensor): Average standard deviation of the number of samples processed by each expert across all layers.
+    - whats (Tensor): Tensor tracking the assignment of nodes to experts across all layers.
+
+    Parameters:
+    - input_size (int): Dimensionality of the input node features.
+    - hidden_size (int): Dimensionality of the hidden layers and node features.
+    - encoding_size (int): Size of the encoded feature representation.
+    - g_norm (float): Graph normalization factor.
+    - heads (int): Number of attention heads in the graph attention mechanism.
+    - num_xprtz (int): Number of experts in the Mixture-of-Experts module.
+    - xprt_size (int): Dimensionality of the hidden layer within each expert.
+    - k (int): Number of top-k experts selected for processing each node.
+    - dropout_encoder (float): Dropout rate applied within the encoder layers.
+    - layers (int): Number of encoder layers in the transformer.
+    - output_size (int): Dimensionality of the final prediction output.
+"""
+
 class Transformer(nn.Module):
     def __init__(self, input_size, hidden_size, encoding_size, g_norm, heads, num_xprtz, xprt_size, k, dropout_encoder, layers, output_size):
         super().__init__()
+        # Embedding layer for input features
         self.embed = EmbedEncode(input_size, hidden_size, encoding_size, g_norm)
+        # Stack of encoders
         self.encoders = nn.ModuleList([Encoder(hidden_size, heads, num_xprtz, xprt_size, k, dropout_encoder) for _ in range(layers)])
+        #layers for classification
         self.cut = nn.Linear(hidden_size, hidden_size // 2)
         self.relu = nn.ReLU()
         self.pool = global_mean_pool
         self.predict = nn.Linear(hidden_size // 2, output_size)
-        self.num_xprtz = num_xprtz
-        self.layers = layers
+        self.num_xprtz = num_xprtz # Number of experts
+        self.layers = layers # Number of encoder layers
 
     def forward(self, x):
-        batcher = x.batch
-        Adj = to_dense_adj(x.edge_index)
-        x = self.embed(x)
-        Loads = torch.zeros(self.layers).to(device)
+        batcher = x.batch # Extract batch indices for graph-level pooling
+        Adj = to_dense_adj(x.edge_index) # Convert edge indices to dense adjacency matrix
+        x = self.embed(x) # Apply embedding layer
+        # Initialize tracking tensors
+        Loads = torch.zeros(self.layers).to(device) 
         counters = torch.zeros(self.layers).to(device)
         whats = torch.empty(0,x.shape[0]).to(device)
         for i, encoder in enumerate(self.encoders):
-            x, load, counter, what = encoder(x, Adj)
+            x, load, counter, what = encoder(x, Adj) # Pass through each encoder layer
+            # Accumulate load, counters and whats for each layer
             Loads[i] += load
             counters[i] += torch.std(counter)
             whats = torch.cat([whats,what], dim = 0)
+        # Compute mean
         counters = torch.mean(counters, dim=0)
         Loads = torch.mean(Loads, dim = 0)
+        #Classification head for prediction
         x = self.relu(self.cut(x))
         x = self.pool(x, batcher)
         x = self.predict(x)
