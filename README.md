@@ -7,7 +7,7 @@ Pytorch implementation for the paper [Mixture-of-Experts Graph Transformers for 
 The MoE Graph Transformer achieves competitive accuracy in classifying rare particle collisions while embedding interpretability through attention maps and expert specialization, offering a transparent tool for high-energy physics analysis.
 
 ## Data 
-The dataset used to train the model is available at [this link]()
+The dataset used to train the model is available at [this link](https://github.com/alessiodevoto/sparticles)
 
 ## Main results 
 TODO
