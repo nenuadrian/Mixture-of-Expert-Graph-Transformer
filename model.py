@@ -1,6 +1,8 @@
-#TODO add libraries
-
-
+from torch import nn
+import torch
+from utils import EmbedEncode
+from torch_geometric.nn import global_mean_pool
+from torch_geometric.utils import to_dense_adj
 """
 The MHGAttend class implements a multi-head graph attention mechanism, a specialized neural network layer designed for graph-structured data. 
 This class takes as input a feature matrix of nodes and an adjacency matrix that defines the graph structure, and computes attention-weighted node embeddings.
@@ -10,7 +12,7 @@ Inputs:
 - Adj (Tensor): Adjacency matrix of shape (node_count, node_count), with 0 indicating no edge and 1 indicating an edge.
 
 Outputs:
-- o (Tensor): Updated node embeddings of shape (node_count, hidden_size).
+- output (Tensor): Updated node embeddings of shape (node_count, hidden_size).
 - attention_scores (Tensor): Attention weights of shape (heads, node_count, node_count).
 
 Parameters:
@@ -39,14 +41,12 @@ class MHGAttend(nn.Module):
         attention_scores = (q @ v.transpose(-2,-1)) / np.sqrt(self.head_size)  #  (heads,nodebatch,head_size)*(heads,head_size,nodebatch) 
         attention_scores.masked_fill_(Adj == 0, -1e9)
         attention_scores = attention_scores.softmax(dim = -1)
-        o = attention_scores @ v  #  (heads,nodebatch,nodebatch)*(heads,nodebatch,head_size)
-        o = o.transpose(0,1).contiguous().view(o.shape[1], self.hidden_size)  #  (nodebatch,hidden_size)
+        output = attention_scores @ v  #  (heads,nodebatch,nodebatch)*(heads,nodebatch,head_size)
+        output = output.transpose(0,1).contiguous().view(o.shape[1], self.hidden_size)  #  (nodebatch,hidden_size)
 
-        return self.wo(o), attention_scores
+        return self.wo(output), attention_scores
 
 
-
- 
 """
 The MoeveForward class implements a Mixture-of-Experts (MoE) model with a forward pass that utilizes a stochastic routing mechanism. 
 This architecture is designed to dynamically route inputs to a subset of specialized experts.
@@ -61,20 +61,20 @@ Inputs:
 - input (Tensor): Input tensor of shape (batch_size, input_size).
 
 Outputs:
-- out (Tensor): Aggregated output tensor of shape (batch_size, input_size), combining contributions from the selected experts.
-- Loads (Tensor): Load distribution tensor of shape (num_xprtz), representing the computational load for each expert.
-- counter (Tensor): Tensor of shape (num_xprtz) tracking the number of samples processed by each expert.
-- what (Tensor): Tensor of shape (num_xprtz, batch_size) indicating the assignment of samples to experts.
+- output_tensor (Tensor): Aggregated output tensor of shape (batch_size, input_size), combining contributions from the selected experts.
+- expert_loads (Tensor): Load distribution tensor of shape (num_experts), representing the computational load for each expert.
+- expert_sample_count (Tensor): Tensor of shape (num_experts) tracking the number of samples processed by each expert.
+- sample_to_expert_assignment (Tensor): Tensor of shape (num_experts, batch_size) indicating the assignment of samples to experts.
 
 Parameters:
-- num_xprtz (int): Number of experts in the mixture.
+- num_experts (int): Number of experts in the mixture.
 - input_size (int): Dimensionality of the input data.
 - xprt_size (int): Dimensionality of the hidden layer within each expert.
 - k (int): Number of top-k experts selected for processing each input.
 - dropout (float): Dropout rate for regularization within each expert.
 """
 class MoeveForward(nn.Module):
-    def __init__(self, num_xprtz, input_size, xprt_size, k, dropout):
+    def __init__(self, num_experts, input_size, xprt_size, k, dropout):
         super().__init__()
         
         # Define a single expert: A simple feedforward neural network (FFN)
@@ -86,84 +86,84 @@ class MoeveForward(nn.Module):
         )
         
         # Combine multiple experts using ModuleList
-        self.experts = nn.ModuleList([self.expert for _ in range(num_xprtz)])
+        self.experts = nn.ModuleList([self.expert for _ in range(num_experts)])
 
         # Define a noise network to introduce randomness in the routing process
-        self.w_noise = nn.Linear(input_size, num_xprtz, bias=False)
+        self.noise_network = nn.Linear(input_size, num_experts, bias=False)
 
         # Define the router network that decides which experts to activate
-        self.router = nn.Linear(input_size, num_xprtz, bias=False)
+        self.router_network = nn.Linear(input_size, num_experts, bias=False)
 
         # Activation function to ensure noise values are non-negative
         self.softplus = nn.Softplus()
 
         # Save the number of experts and the top-k selection parameter
-        self.num_xprtz = num_xprtz  # Number of experts
+        self.num_experts = num_experts  # Number of experts
         self.k = k  # Number of top-k experts to select
 
         # Initialize the weights of the noise network to zero
-        torch.nn.init.zeros_(self.w_noise.weight)
+        torch.nn.init.zeros_(self.noise_network.weight)
 
-    def forward(self, input):
+    def forward(self, input, device):
         # Compute the routing logits from the router network
-        router_choice = self.router(input)
+        router_logits = self.router_network(input)
 
         # Compute the noise values using the noise network and Softplus activation
-        router_noise = self.softplus(self.w_noise(input))
+        router_noise = self.softplus(self.noise_network(input))
 
         # Add random noise to the router's logits to introduce stochasticity
-        H = router_choice + torch.randn(self.num_xprtz).to(device) * router_noise    #(input_size,num_xprt)
+        routing_logits_noisy = router_logits + torch.randn(self.num_experts).to(device) * router_noise #(input_size,num_experts)
 
         # Select the top-k experts based on the noisy routing logits
-        weights, experts = torch.topk(H, self.k)  # `weights`: top-k values, `experts`: top-k indices #(input_size, k)
+        topk_weights, selected_experts = torch.topk(routing_logits_noisy, self.k) # `weights`: top-k values, `experts`: top-k indices #(input_size, k)
 
         # Apply a softmax to the selected weights to normalize them
-        weights = nn.functional.softmax(weights, dim=1, dtype=torch.float) 
+        topk_weights = nn.functional.softmax(topk_weights, dim=1, dtype=torch.float)
 
         # Initialize outputs and tracking tensors
-        out = torch.zeros_like(input).to(device)  # Output tensor (same shape as input)
-        Loads = torch.zeros(self.num_xprtz).to(device)  # Tracks load for each expert
-        counter = torch.zeros(self.num_xprtz).to(device)  # Tracks number of samples processed by each expert
-        what = torch.zeros(self.num_xprtz, input.shape[0]).to(device)  # Tracks which samples go to which expert
+        output_tensor = torch.zeros_like(input).to(device) # Output tensor (same shape as input)
+        expert_loads = torch.zeros(self.num_experts).to(device)  # Tracks load for each expert
+        expert_sample_count = torch.zeros(self.num_experts).to(device)  # Tracks number of samples processed by each expert
+        sample_to_expert_assignment = torch.zeros(self.num_experts, input.shape[0]).to(device)  # Tracks which samples go to which expert
 
         # Loop through each expert to compute outputs and loads
-        for i, xprt in enumerate(self.experts):
+        for expert_idx, expert_network in enumerate(self.experts):
             # Identify samples assigned to the current expert
-            which_nodes, which_xprt = torch.where(experts == i)
+            assigned_nodes, selected_idx = torch.where(selected_experts == expert_idx)
 
             # Compute the output for the assigned samples
-            out[which_nodes] += weights[which_nodes, which_xprt, None] * xprt(input[which_nodes])
+            output_tensor[assigned_nodes] += topk_weights[assigned_nodes, selected_idx, None] * expert_network(input[assigned_nodes])
 
             # Track which samples were assigned to this expert
-            what[i][which_nodes] += 1
+            sample_to_expert_assignment[expert_idx][assigned_nodes] += 1
 
             # Calculate the load for the current expert
             # Find the k-th largest routing logit excluding the current expert
-            kthXi = torch.topk(torch.cat([
-                H.transpose(0, 1)[:i],         # Logits before the current expert
-                H.transpose(0, 1)[i + 1:]      # Logits after the current expert
-            ]).transpose(0, 1), self.k)[0].transpose(0, 1)[self.k - 1]  # Select k-th largest logit
-
+            kth_best_logits = torch.topk(
+                torch.cat([
+                    routing_logits_noisy.transpose(0, 1)[:expert_idx],         # Logits before the current expert
+                    routing_logits_noisy.transpose(0, 1)[expert_idx+1:]     # Logits after the current expert
+                ]).transpose(0, 1), self.k  # Select k-th largest logit
+            )[0].transpose(0, 1)[self.k-1]
             # Retrieve the routing logit for the current expert
-            router_choice_i = router_choice.transpose(0, 1)[i]
+            router_logits_expert = router_logits.transpose(0, 1)[expert_idx]
+
 
             # Define a normal distribution (mean=0, std=1) for computing probabilities
-            normal = torch.distributions.normal.Normal(
-                torch.tensor([0.0]).to(device), torch.tensor([1.0]).to(device)
-            )
+            normal = torch.distributions.normal.Normal(torch.tensor([0.0]).to(device), torch.tensor([1.0]).to(device))
 
             # Compute the probability of the current expert being selected
-            P_i = normal.cdf((router_choice_i - kthXi) / router_noise.transpose(0, 1)[i])
+            expert_selection_prob = normal.cdf((router_logits_expert - kth_best_logits) / router_noise.transpose(0, 1)[expert_idx])
 
             # Compute the load for the current expert
-            load_i = torch.sum(P_i)
-            Loads[i] += load_i
+            load_i = torch.sum(expert_selection_prob)
+            expert_loads[expert_idx] += load_i
 
             # Track the number of samples processed by this expert
-            counter[i] += len(which_nodes)
+            expert_sample_count[expert_idx] += len(assigned_nodes)
 
         # Return the output, loads, sample counts, and assignment tracking
-        return out, Loads, counter, what
+        return output_tensor, expert_loads, expert_sample_count, sample_to_expert_assignment
 
 
 
@@ -180,24 +180,24 @@ Inputs:
 
 Outputs:
 - y (Tensor): Output tensor of shape (num_nodes, hidden_size), containing the processed node representations.
-- load (Tensor): the squared normalized variance of loads.
-- counter (Tensor): Tensor of shape (num_xprtz), tracking the number of samples processed by each expert.
-- what (Tensor): Tensor of shape (num_xprtz, num_nodes), indicating the assignment of nodes to experts.
+- load_balance (Tensor): the squared normalized variance of expert_loads.
+- expert_sample_count (Tensor): Tensor of shape (num_xprtz), tracking the number of samples processed by each expert.
+- sample_to_expert_assignment (Tensor): Tensor of shape (num_xprtz, num_nodes), indicating the assignment of nodes to experts.
 
 Parameters:
 - hidden_size (int): Dimensionality of the input and output node features.
 - heads (int): Number of attention heads in the graph attention mechanism.
-- num_xprtz (int): Number of experts in the Mixture-of-Experts module.
-- xprt_size (int): Dimensionality of the hidden layer within each expert.
+- num_experts (int): Number of experts in the Mixture-of-Experts module.
+- expert_hidden_size (int): Dimensionality of the hidden layer within each expert.
 - k (int): Number of top-k experts selected for processing each node.
 - dropout (float): Dropout rate for regularization.
 """
 
 class Encoder(nn.Module):
-    def __init__(self, hidden_size, heads, num_xprtz, xprt_size, k, dropout):
+    def __init__(self, hidden_size, heads, num_experts, expert_hidden_size, k, dropout):
         super().__init__()
         self.attend = MHGAttend(hidden_size, heads)
-        self.moveforward = MoeveForward(num_xprtz, hidden_size, xprt_size, k, dropout)
+        self.moveforward = MoeveForward(num_experts, hidden_size, expert_hidden_size, k, dropout)
         self.normalize1 = nn.LayerNorm(hidden_size)
         self.normalize2 = nn.LayerNorm(hidden_size)
         self.drop = nn.Dropout(dropout)
@@ -207,11 +207,11 @@ class Encoder(nn.Module):
         x, _ = self.attend(x,Adj)
         x = self.normalize1(input + x)
         x = self.drop(x)
-        y, load, counter, what = self.moveforward(x)
+        y, expert_loads, expert_sample_count, sample_to_expert_assignment = self.moe_forward(x)
         y = self.normalize2(x + y) 
-        load = (torch.std(load) / torch.mean(load))**2 #squared normalized variance of load
+        load_balance = (torch.std(load) / torch.mean(load))**2 #squared normalized variance of load
     
-        return y, load, counter, what
+        return y, load_balance, expert_sample_count, sample_to_expert_assignment
 
 
 
@@ -229,9 +229,9 @@ class Encoder(nn.Module):
 
     Outputs:
     - x (Tensor): Final output predictions of shape (batch_size, output_size).
-    - Loads (Tensor): Scalar tensor representing average load imbalance across all layers.
-    - counters (Tensor): Average standard deviation of the number of samples processed by each expert across all layers.
-    - whats (Tensor): Tensor tracking the assignment of nodes to experts across all layers.
+    - average_load_balance (Tensor): Scalar tensor representing average load imbalance across all layers.
+    - average_expert_std (Tensor): Average standard deviation of the number of samples processed by each expert across all layers.
+    - all_sample_assignments (Tensor): Tensor tracking the assignment of nodes to experts across all layers.
 
     Parameters:
     - input_size (int): Dimensionality of the input node features.
@@ -262,26 +262,26 @@ class Transformer(nn.Module):
         self.num_xprtz = num_xprtz # Number of experts
         self.layers = layers # Number of encoder layers
 
-    def forward(self, x):
-        batcher = x.batch # Extract batch indices for graph-level pooling
+    def forward(self, x, device):
+        batch_indices = x.batch # Extract batch indices for graph-level pooling
         Adj = to_dense_adj(x.edge_index) # Convert edge indices to dense adjacency matrix
         x = self.embed(x) # Apply embedding layer
         # Initialize tracking tensors
-        Loads = torch.zeros(self.layers).to(device) 
-        counters = torch.zeros(self.layers).to(device)
-        whats = torch.empty(0,x.shape[0]).to(device)
+        load_balances = torch.zeros(self.layers).to(device) 
+        expert_std_devs = torch.zeros(self.layers).to(device)
+        all_sample_assignments = torch.empty(0,x.shape[0]).to(device)
         for i, encoder in enumerate(self.encoders):
-            x, load, counter, what = encoder(x, Adj) # Pass through each encoder layer
+            x, load_balance, expert_sample_count, sample_to_expert_assignment = encoder(x, Adj) # Pass through each encoder layer
             # Accumulate load, counters and whats for each layer
-            Loads[i] += load
-            counters[i] += torch.std(counter)
-            whats = torch.cat([whats,what], dim = 0)
+            load_balances[i] += load_balance
+            expert_std_devs[i] += torch.std(expert_sample_count)
+            all_sample_assignments = torch.cat([all_sample_assignments, sample_to_expert_assignment], dim=0)
         # Compute mean
-        counters = torch.mean(counters, dim=0)
-        Loads = torch.mean(Loads, dim = 0)
+        average_expert_std = torch.mean(expert_std_devs, dim=0)
+        average_load_balance = torch.mean(load_balances, dim=0)
         #Classification head for prediction
         x = self.relu(self.cut(x))
-        x = self.pool(x, batcher)
+        x = self.pool(x, batch_indices)
         x = self.predict(x)
     
-        return x, Loads, counters, whats
+        return x, average_load_balance, average_expert_std, all_sample_assignments
