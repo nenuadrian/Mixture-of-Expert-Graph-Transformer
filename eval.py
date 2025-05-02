@@ -4,7 +4,7 @@ import numpy as np
 import random
 import os
 import re
-from torch.utils.data import DataLoader
+from torch_geometric.loader import DataLoader  # Use PyTorch Geometric's DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score
 from dataset import CustomEventsDataset2, MakeHomogeneous
@@ -26,7 +26,7 @@ layers = 2
 output_size = 2
 batchsize = 500
 seed = 42
-model_ckpt_path = '/content/12804True262020.022150060450.10.001Truemaskfullcheckpoint (2).pt'
+model_ckpt_path = '/hdd3/dongen/Desktop/Susy/Mixture-of-Expert-Graph-Transformer/results/12804True262020.022150060450.10.001Trueprova/final_model.pt'
 output_dir = './evaluation_outputs'
 
 os.makedirs(output_dir, exist_ok=True)
@@ -38,18 +38,21 @@ random.seed(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+dataset_root = './data'
+os.makedirs(dataset_root, exist_ok=True)
 
 # ---- LOAD DATA ----
 datasetfull = CustomEventsDataset2(
-    root='/data',
+    root=dataset_root,
     url='https://cernbox.cern.ch/s/0nh0g7VubM4ndoh/download',
     k=encoding_size,
     delete_raw_archive=False,
     add_edge_index=True,
-    event_subsets={'signal': 400000, 'singletop': 200000, 'ttbar': 200000},
-    download_type=2,
-    transform=MakeHomogeneous()
+    event_subsets={'signal': 400, 'singletop': 200, 'ttbar': 200},
+    transform=MakeHomogeneous(), 
+    signal_filter=lambda filename: "Wh_hbb_fullMix.h5" in filename
 )
 
 trainset, testset = train_test_split(datasetfull, test_size=0.2)
@@ -65,7 +68,7 @@ criterion = torch.nn.CrossEntropyLoss()
 loss = LoadBalancingLoss(criterion, 0)
 
 # ---- EVALUATION ----
-result = evaluate(test_loader, model, loss)
+result = evaluate(test_loader, model, loss, device)
 predictions = torch.argmax(torch.cat(result[0]), dim=1)
 truths = torch.cat(result[1])
 which_node = torch.cat(result[4], dim=-1).cpu()

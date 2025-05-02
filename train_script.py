@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch_geometric.loader import DataLoader  # Use PyTorch Geometric's DataLoader
 import numpy as np
 import random
 import pandas as pd
@@ -23,7 +23,7 @@ all_f1 = []
 all_auroc_torchmetrics = []
 all_auroc_sklearn = []
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:0') #if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 # ---- CONFIGURATION ----
@@ -98,15 +98,17 @@ criterion = nn.CrossEntropyLoss()
 loss_fn = LoadBalancingLoss(criterion, w_load)
 
 # ---- DATALOADERS ----
+# ---- DATALOADERS ----
 train_loader = DataLoader(trainset, batch_size=batchsize, shuffle=True)
 eval_loader = DataLoader(evalset, batch_size=batchsize, shuffle=False)
+test_loader = DataLoader(testset, batch_size=batchsize, shuffle=False)
 
 # ---- TRAIN ----
-result1 = train_evaluate(train_loader, eval_loader, model, criterion, loss_fn, optimizer, scheduler, patience, epochs)
+result1 = train_evaluate(train_loader, eval_loader, model, criterion, loss_fn, optimizer, scheduler, patience, epochs, device = device)
 
 # ---- TEST ----
 test_loader = DataLoader(testset, shuffle=False, batch_size=batchsize)
-result2 = evaluate(test_loader, model, loss_fn)
+result2 = evaluate(test_loader, model, loss_fn, device = device)
 
 # ---- METRICS ----
 predictions = torch.argmax(torch.cat(result2[0]), dim=1)

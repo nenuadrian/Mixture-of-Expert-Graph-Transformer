@@ -3,7 +3,6 @@ import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 import os
 
-
 # Early stopping class to prevent overfitting and stop training when validation loss stops improving
 class EarlyStopping():
     def __init__(self, patience, delta=0, path='checkpoint.pt'):
@@ -67,7 +66,7 @@ def train(dataloader, model, loss_fn, optimizer, device):
 
 
 # Evaluation function (similar to training but without gradient updates)
-def evaluate(dataloader, model, loss_fn):
+def evaluate(dataloader, model, loss_fn, device):
     model.eval()  # Set model to evaluation mode
     predictions = []
     ground_truths = []
@@ -93,7 +92,7 @@ def evaluate(dataloader, model, loss_fn):
 
 
 # Training and evaluation loop
-def train_evaluate(trainloader, evalloader, model, criterion, loss_fn, optimizer, scheduler, patience, epochs, save_dir="training_outputs"):
+def train_evaluate(trainloader, evalloader, model, criterion, loss_fn, optimizer, scheduler, patience, epochs, device, save_dir="training_outputs"):
     os.makedirs(save_dir, exist_ok=True)  # Create a folder to save outputs
 
     train_history, eval_history = [], []
@@ -108,8 +107,8 @@ def train_evaluate(trainloader, evalloader, model, criterion, loss_fn, optimizer
         running_loss = 0.0
 
         # Perform training and evaluation
-        train_results = train(dataloader=trainloader, model=model, loss_fn=loss_fn, optimizer=optimizer, device=model.device)
-        eval_results = evaluate(dataloader=evalloader, model=model, loss_fn=loss_fn)
+        train_results = train(dataloader=trainloader, model=model, loss_fn=loss_fn, optimizer=optimizer, device=device)
+        eval_results = evaluate(dataloader=evalloader, model=model, loss_fn=loss_fn, device=device)
 
         # Store history
         train_history.append(train_results)

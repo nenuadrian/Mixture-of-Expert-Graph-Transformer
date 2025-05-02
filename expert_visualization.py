@@ -54,8 +54,12 @@ for i in range(num_xprtz * layers):
 # ---- PLOTS ----
 if layers == 1:
     num_experts = len(xprtlsignal)
-    plot_grouped_bars(xprtlsignal, dictiorevsignal, num_experts, colors, 7, 5, 0.6, "Event type")
-    plot_grouped_bars(xprtlparticle, dictiorevparticle, num_experts, colors, 12, 6, 0.8, "Node type")
+    fig1 = plot_grouped_bars(xprtlsignal, dictiorevsignal, num_experts, colors, 7, 5, 0.6, "Event type")
+    fig1.savefig(f"{output_dir}/specialization_event_type.png", bbox_inches='tight')
+
+    fig2 = plot_grouped_bars(xprtlparticle, dictiorevparticle, num_experts, colors, 12, 6, 0.8, "Node type")
+    fig2.savefig(f"{output_dir}/specialization_node_type.png", bbox_inches='tight')
+
 else:
     # Event type
     fig, axs = plt.subplots(nrows=layers, figsize=(11, layers * 5))
@@ -66,6 +70,8 @@ else:
         plot_grouped_bars_sub(data, dictiorevsignal, num_xprtz, colors, 0.6, axs[i], "Event type")
         axs[i].grid()
         temp += num_xprtz
+    fig.tight_layout()
+    fig.savefig(f"{output_dir}/specialization_event_type_layers.png", bbox_inches='tight')
 
     # Node type
     fig, axs = plt.subplots(nrows=layers, figsize=(12, layers * 5))
@@ -76,5 +82,6 @@ else:
         plot_grouped_bars_sub(data, dictiorevparticle, num_xprtz, colors, 0.7, axs[i], "Node type")
         axs[i].grid()
         temp += num_xprtz
+    fig.tight_layout()
+    fig.savefig(f"{output_dir}/specialization_node_type_layers.png", bbox_inches='tight')
 
-plt.show()

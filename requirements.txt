@@ -1,4 +1,8 @@
-torch>=2.1.0
+torch==2.5.1
+torchvision==0.20.1
+torchaudio==2.5.1
+torchmetrics
+-f https://download.pytorch.org/whl/torch_stable.html
 tqdm
 numpy
 wandb
@@ -7,5 +11,6 @@ seaborn
 scikit-learn
 git+https://github.com/alessiodevoto/sparticles.git
 tables
-torch_geometric
-torchmetrics
+torch_geometric # Ensure this is compatible with Torch 2.1.0
+torchmetrics # Ensure this is compatible with Torch 2.1.0
+pandas
