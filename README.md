@@ -17,3 +17,11 @@ TODO
 TODO
 ## Explainability visualization
 
+## Cite 
+Please cite our work if you found it useful
+@article{genovese2025mixtureofexpertsgraphtransformersinterpretable,
+      title={Mixture-of-Experts Graph Transformers for Interpretable Particle Collision Detection}, 
+      author={Donatella Genovese and Alessandro Sgroi and Alessio Devoto and Samuel Valentine and Lennox Wood and Cristiano Sebastiani and Stefano Giagu and Monica D'Onofrio and Simone Scardapane},
+      year={2025},
+      url={https://arxiv.org/abs/2501.03432}, 
+}
