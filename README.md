@@ -14,8 +14,7 @@ We train and evaluate the model and compare it with other architectures (Multila
 ![image](Metrics.png)
 
 ## Explainability visualization
-We 
-
+![image](AttentionMaps.png)
 
 ## Code
 
