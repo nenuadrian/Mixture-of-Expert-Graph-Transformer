@@ -12,11 +12,12 @@ The dataset used to train the model is available at [this link](https://github.c
 ## Metrics 
 We train and evaluate the model and compare it with other architectures (Multilayer perception, Graph Convolutional Neural network, Graph Transformer). The results are shown in the table
 ![image](Metrics.png)
-## Data preparation
-TODO
-## Training and evalutation
-TODO
+
 ## Explainability visualization
+We 
+
+
+## Code
 
 ## Cite 
 Please cite our work if you found it useful
