@@ -14,7 +14,7 @@ We train and evaluate the model and compare it with other architectures (Multila
 ![image](images/Metrics.png)
 
 ## Explainability visualization
-![image](images/AttentionMaps.png)
+<img src="images/AttentionMaps.png" alt="Attention Maps" width="400"/>
 
 ## Code
 
