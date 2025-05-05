@@ -1,7 +1,7 @@
 # Mixture of Experts Graph Transformer
 Pytorch implementation for the paper [Mixture-of-Experts Graph Transformers for Interpretable Particle Collision Detection](https://arxiv.org/abs/2501.03432). 
 
-<img src="images/teaser.png" alt="Teaser" width="500"/>
+<img src="images/teaser.png" alt="Teaser" width="800"/>
 
 ## TL;DR
 The MoE Graph Transformer achieves competitive accuracy in classifying rare particle collisions while embedding interpretability through attention maps and expert specialization, offering a transparent tool for high-energy physics analysis.
