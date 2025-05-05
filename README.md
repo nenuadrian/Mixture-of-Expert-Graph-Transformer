@@ -10,8 +10,8 @@ The MoE Graph Transformer achieves competitive accuracy in classifying rare part
 The dataset used to train the model is available at [this link](https://github.com/alessiodevoto/sparticles)
 
 ## Metrics 
-We train and evaluate the model and compare it with other architectures (Multilayer perception, Graph Convolutional Neural network, Graph Transformer). The results are shown in the table
-<img src="images/Metrics.png" alt="Metrics" width="600"/>
+We train and evaluate the model and compare it with other architectures (Multilayer perception, Graph Convolutional Neural network, Graph Transformer). The results are shown in the table \\
+<img src="images/Metrics.png" alt="Metrics" width="800"/>
 
 ## Explainability visualization
 <img src="images/AttentionMaps.png" alt="Attention Maps" width="400"/>
