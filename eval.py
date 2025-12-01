@@ -7,7 +7,7 @@ import re
 from torch_geometric.loader import DataLoader  # Use PyTorch Geometric's DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score
-from dataset import CustomEventsDataset2, MakeHomogeneous
+from dataset import CustomEventsDataset2, CustomMakeHomogeneous
 from model import Transformer
 from utils import LoadBalancingLoss
 from train import evaluate
@@ -26,7 +26,7 @@ layers = 2
 output_size = 2
 batchsize = 500
 seed = 42
-model_ckpt_path = '/hdd3/dongen/Desktop/Susy/Mixture-of-Expert-Graph-Transformer/results/12804True262020.022150060450.10.001Trueprova/final_model.pt'
+model_ckpt_path = '/mnt/iusers01/fatpou01/compsci01/mbax2an2/scratch/Mixture-of-Expert-Graph-Transformer/results/12804True262020.022150060450.10.001Trueprova/final_model.pt'
 output_dir = './evaluation_outputs'
 
 os.makedirs(output_dir, exist_ok=True)
@@ -51,7 +51,7 @@ datasetfull = CustomEventsDataset2(
     delete_raw_archive=False,
     add_edge_index=True,
     event_subsets={'signal': 400, 'singletop': 200, 'ttbar': 200},
-    transform=MakeHomogeneous(), 
+    transform=CustomMakeHomogeneous(), 
     signal_filter=lambda filename: "Wh_hbb_fullMix.h5" in filename
 )
 

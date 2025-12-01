@@ -1,0 +1,7 @@
+.venv/
+__pycache__/**
+checkpoint.pt
+data/**
+evaluation_outputs/**
+results/**
+training_outputs/**

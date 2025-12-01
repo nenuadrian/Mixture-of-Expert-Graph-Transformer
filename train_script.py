@@ -11,7 +11,7 @@ from torchmetrics.classification import AUROC  # don't forget to import this if 
 
 from train import train_evaluate, evaluate
 from utils import EmbedEncode, LoadBalancingLoss
-from dataset import CustomEventsDataset2, MakeHomogeneous
+from dataset import CustomEventsDataset2, CustomMakeHomogeneous
 from model import Transformer
 from sklearn.model_selection import train_test_split
 
@@ -74,7 +74,7 @@ datasetfull = CustomEventsDataset2(
     delete_raw_archive=False,
     add_edge_index=True,
     event_subsets={'signal': 400, 'singletop': 200, 'ttbar': 200},
-    transform=MakeHomogeneous(), 
+    transform=CustomMakeHomogeneous(), 
     signal_filter=lambda filename: "Wh_hbb_fullMix.h5" in filename
 )
 
@@ -83,6 +83,8 @@ trainset, evalset = train_test_split(trainset, test_size=0.2)
 
 # ---- BUILD MODEL ----
 model = Transformer(input_size, hidden_size, encoding_size, g_norm, heads, num_xprtz, xprt_size, k, dropout_encoder, layers, output_size).to(device)
+
+print(model)
 
 if learning_rate is not None:
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

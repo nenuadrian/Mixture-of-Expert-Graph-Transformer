@@ -5,6 +5,12 @@ import torch
 from torch_geometric.transforms import AddLaplacianEigenvectorPE
 import numpy as np
 
+class CustomMakeHomogeneous(MakeHomogeneous):
+    def __init(self, *args, **kwargs):
+        super().__init(*args, **kwargs)
+    def forward(self, data):
+        pass
+
 #standardization of only continuous features
 class CustomEventsDataset1(EventsDataset):
     def __init__(self, k=4, *args, **kwargs):
