@@ -1,6 +1,50 @@
 # Mixture of Experts Graph Transformer
 Pytorch implementation for the paper [Mixture-of-Experts Graph Transformers for Interpretable Particle Collision Detection](https://arxiv.org/abs/2501.03432). 
 
+```
+Transformer(
+  (embed): EmbedEncode(
+    (embedding): Linear(in_features=12, out_features=80, bias=True)
+    (encoding): Linear(in_features=4, out_features=80, bias=True)
+  )
+  (encoders): ModuleList(
+    (0-1): 2 x Encoder(
+      (attend): MHGAttend(
+        (wq): Linear(in_features=80, out_features=80, bias=True)
+        (wk): Linear(in_features=80, out_features=80, bias=True)
+        (wv): Linear(in_features=80, out_features=80, bias=True)
+        (wo): Linear(in_features=80, out_features=80, bias=True)
+      )
+      (moveforward): MoeveForward(
+        (expert): Sequential(
+          (0): Linear(in_features=80, out_features=20, bias=True)
+          (1): LeakyReLU(negative_slope=0.01)
+          (2): Linear(in_features=20, out_features=80, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+        (experts): ModuleList(
+          (0-5): 6 x Sequential(
+            (0): Linear(in_features=80, out_features=20, bias=True)
+            (1): LeakyReLU(negative_slope=0.01)
+            (2): Linear(in_features=20, out_features=80, bias=True)
+            (3): Dropout(p=0.0, inplace=False)
+          )
+        )
+        (noise_network): Linear(in_features=80, out_features=6, bias=False)
+        (router_network): Linear(in_features=80, out_features=6, bias=False)
+        (softplus): Softplus(beta=1.0, threshold=20.0)
+      )
+      (normalize1): LayerNorm((80,), eps=1e-05, elementwise_affine=True)
+      (normalize2): LayerNorm((80,), eps=1e-05, elementwise_affine=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+  )
+  (cut): Linear(in_features=80, out_features=40, bias=True)
+  (relu): ReLU()
+  (predict): Linear(in_features=40, out_features=2, bias=True)
+)
+```
+
 <img src="images/teaser.png" alt="Teaser" width="800"/>
 
 ## TL;DR
